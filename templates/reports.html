@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% from 'partials/stat_card.html' import stat_card %}
+{% from 'partials/states.html' import loading, empty, error %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+<div class="card-box mb-3">
+  <h2>Traffic &amp; System Reports</h2>
+  <ul class="nav nav-tabs mb-3" id="reportTabs" role="tablist">
+    <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabIncidents" type="button" role="tab">Incident Report</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabTraffic" type="button" role="tab">Traffic Summary</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabActivity" type="button" role="tab">User Activity</button></li>
+  </ul>
+  <form class="row g-2 align-items-end" id="reportForm" novalidate>
+    <div class="col-sm-4 col-md-3"><label class="form-label" for="dateFrom">From</label><input class="form-control" type="date" id="dateFrom" required></div>
+    <div class="col-sm-4 col-md-3"><label class="form-label" for="dateTo">To</label><input class="form-control" type="date" id="dateTo" required></div>
+    <div class="col-sm-4 col-md-3"><button class="btn btn-primary w-100" id="genBtn" type="submit">Generate Report</button></div>
+  </form>
+  <div id="reportAlert" class="mt-3" aria-live="polite"></div>
+</div>
+
+{{ loading('repLoading', 'Generating report...') }}
+{{ error('repError', 'Could not generate the report') }}
+{{ empty('repIdle', 'No report generated yet', 'Choose a date range and select Generate Report.', 'bi-bar-chart-line') }}
+
+<div id="repBody" class="is-hidden">
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="tabIncidents" role="tabpanel">
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">{{ stat_card('Total incidents', '--', 'bi-geo-alt', 'red', id='kTotal', sub='reported in range') }}</div>
+        <div class="col-md-4">{{ stat_card('Most reported location', '--', 'bi-pin-map', 'amber', id='kHot', sub='by number of reports') }}</div>
+        <div class="col-md-4">{{ stat_card('Avg. travel time', 'Not available', 'bi-clock', '', sub='needs a traffic data provider') }}</div>
+      </div>
+      <div id="repEmpty" class="alert alert-secondary is-hidden">No incidents were reported in this date range.</div>
+      <div class="row g-3">
+        <div class="col-lg-7"><div class="card-box"><h2>Incidents per day <span class="badge-status ms-1">Database</span></h2><div class="chart-box"><canvas id="dayChart" role="img" aria-label="Line chart of incidents reported per day"></canvas></div></div></div>
+        <div class="col-lg-5"><div class="card-box"><h2>Incidents by type <span class="badge-status ms-1">Database</span></h2><div class="chart-box"><canvas id="typeChart" role="img" aria-label="Bar chart of incidents by type"></canvas></div></div></div>
+      </div>
+    </div>
+    <div class="tab-pane fade" id="tabTraffic" role="tabpanel">
+      <div class="card-box"><div class="state-block"><i class="bi bi-plug" aria-hidden="true"></i>
+        <div class="state-title">Traffic trend not available</div>
+        <div id="trafficTrendMsg">Congestion trends and average travel times need a live traffic data provider.</div></div></div>
+    </div>
+    <div class="tab-pane fade" id="tabActivity" role="tabpanel">
+      <div class="row g-3"><div class="col-md-4">{{ stat_card('Active reporters', '--', 'bi-people', '', id='kReporters', sub='users who reported incidents') }}</div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block vendor_scripts %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+<script src="{{ url_for('static', filename='js/reports.js') }}"></script>
+{% endblock %}

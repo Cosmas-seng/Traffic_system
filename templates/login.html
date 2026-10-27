@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Login{% endblock %}
+{% block layout %}
+<main id="main" class="auth-page">
+  <div class="auth-card">
+    <section class="auth-visual" aria-label="Nairobi skyline">
+      <h2>Smarter Routes<br>Safer Nairobi</h2>
+      <p>Real-time traffic monitoring and route optimization for a better commute.</p>
+    </section>
+
+    <section class="auth-form">
+      <div class="auth-logo">
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="" width="44" height="44">
+        <h1>Nairobi Traffic System</h1>
+        <p>Login to Your Account</p>
+      </div>
+
+      {% if forbidden %}
+        <div class="alert alert-warning py-2" role="alert">You do not have permission to view that page.</div>
+      {% endif %}
+      {% include 'partials/flash_messages.html' %}
+      <div id="formAlert" aria-live="polite"></div>
+
+      <form id="loginForm" method="post" action="{{ url_for('login', next=request.args.get('next')) }}" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="mb-3">
+          <label class="form-label" for="email">Email address</label>
+          <div class="input-icon">
+            <i class="bi bi-person lead-icon" aria-hidden="true"></i>
+            <input class="form-control" type="email" id="email" name="email" placeholder="you@example.com"
+                   autocomplete="username" required maxlength="254">
+          </div>
+          <div class="invalid-feedback">Enter a valid email address.</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="password">Password</label>
+          <div class="input-icon">
+            <i class="bi bi-lock lead-icon" aria-hidden="true"></i>
+            <input class="form-control has-toggle" type="password" id="password" name="password" placeholder="Password"
+                   autocomplete="current-password" required>
+            <button class="toggle-pw" type="button" data-target="#password" aria-label="Show password" aria-pressed="false">
+              <i class="bi bi-eye" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="invalid-feedback">Enter your password.</div>
+        </div>
+
+        <button class="btn btn-primary w-100" type="submit">Login</button>
+      </form>
+
+      <p class="text-center text-muted mt-3 mb-0">Don't have an account? <a href="{{ url_for('register') }}">Register</a></p>
+    </section>
+  </div>
+</main>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/auth.js') }}"></script>{% endblock %}

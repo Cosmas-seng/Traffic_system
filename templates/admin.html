@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% from 'partials/states.html' import loading, empty, error %}
+{% block title %}Users{% endblock %}
+
+{% block content %}
+<div class="card-box">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <h2 class="mb-0">Users</h2>
+    <button class="btn btn-primary btn-sm" id="addUserBtn" type="button"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Add User</button>
+  </div>
+
+  <form class="row g-2 mb-3" id="filterForm" role="search">
+    <div class="col-sm-6 col-md-5">
+      <label class="visually-hidden" for="q">Search users</label>
+      <input class="form-control" id="q" type="search" placeholder="Search by name or email" maxlength="100">
+    </div>
+    <div class="col-sm-4 col-md-3">
+      <label class="visually-hidden" for="roleFilter">Filter by role</label>
+      <select class="form-select" id="roleFilter">
+        <option value="">All roles</option><option value="admin">Admin</option><option value="driver">Driver</option><option value="commuter">Commuter</option>
+      </select>
+    </div>
+    <div class="col-sm-2"><button class="btn btn-outline-primary w-100" type="submit">Search</button></div>
+  </form>
+
+  <div id="adminAlert" aria-live="polite"></div>
+  {{ loading('usersLoading', 'Loading users...') }}
+  {{ empty('usersEmpty', 'No users found', 'Try a different search or filter.', 'bi-people') }}
+  {{ error('usersError', 'Could not load users') }}
+  <div id="usersWrap" class="is-hidden">
+    <div class="table-responsive">
+      <table class="table table-compact align-middle">
+        <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="usersBody"></tbody>
+      </table>
+    </div>
+    <nav class="d-flex align-items-center justify-content-between mt-3" aria-label="User pages">
+      <span class="upload-hint" id="pageInfo"></span>
+      <div class="btn-group"><button class="btn btn-outline-primary btn-sm" id="prevPage" type="button">Previous</button><button class="btn btn-outline-primary btn-sm" id="nextPage" type="button">Next</button></div>
+    </nav>
+  </div>
+</div>
+
+<div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="userModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><form class="modal-content" id="userForm" novalidate>
+    <div class="modal-header"><h2 class="modal-title fs-6" id="userModalTitle">Add User</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <div id="userAlert" aria-live="polite"></div>
+      <div class="mb-3"><label class="form-label" for="uName">Full name</label><input class="form-control" id="uName" required minlength="2" maxlength="100"><div class="invalid-feedback">Enter a name (2-100 characters).</div></div>
+      <div class="mb-3"><label class="form-label" for="uEmail">Email address</label><input class="form-control" id="uEmail" type="email" required maxlength="254"><div class="invalid-feedback">Enter a valid email.</div></div>
+      <div class="mb-3"><label class="form-label" for="uRole">Role</label>
+        <select class="form-select" id="uRole"><option value="commuter">Commuter</option><option value="driver">Driver</option><option value="admin">Admin</option></select></div>
+      <div class="mb-3" id="pwGroup"><label class="form-label" for="uPw">Temporary password</label><input class="form-control" id="uPw" type="password" minlength="8" autocomplete="new-password"><div class="invalid-feedback">At least 8 characters, mixing letters and numbers.</div></div>
+      <div class="form-check" id="activeGroup"><input class="form-check-input" type="checkbox" id="uActive" checked><label class="form-check-label" for="uActive">Account active</label></div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="userSaveBtn" type="submit">Save</button></div>
+  </form></div>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='js/admin.js') }}"></script>{% endblock %}

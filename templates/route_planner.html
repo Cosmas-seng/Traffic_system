@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% from 'partials/states.html' import loading, empty, error %}
+{% block title %}Route Planner{% endblock %}
+{% block vendor_css %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card-box mb-3">
+      <h2>Plan Your Route</h2>
+      <form id="routeForm" novalidate>
+        <div class="row g-2 mb-3">
+          <div class="col-sm-6">
+            <label class="form-label" for="origin">From</label>
+            <input class="form-control" id="origin" name="origin" list="places" placeholder="e.g. Nairobi CBD" required maxlength="200" autocomplete="off">
+            <div class="invalid-feedback">Enter a starting location.</div>
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label" for="destination">To</label>
+            <input class="form-control" id="destination" name="destination" list="places" placeholder="e.g. Mlolongo" required maxlength="200" autocomplete="off">
+            <div class="invalid-feedback">Enter a destination.</div>
+          </div>
+        </div>
+        {# Input suggestions only: plain place names, not traffic or route data. #}
+        <datalist id="places">
+          <option value="Nairobi CBD"><option value="Westlands"><option value="Kilimani"><option value="Upper Hill">
+          <option value="Karen"><option value="Embakasi"><option value="Mlolongo"><option value="Thika Road (Roysambu)">
+          <option value="JKIA"><option value="Eastleigh"><option value="Kasarani"><option value="Ngong Road">
+        </datalist>
+        <button class="btn btn-primary w-100" id="routeBtn" type="submit"><i class="bi bi-lightning-charge me-1" aria-hidden="true"></i>Find Best Route</button>
+      </form>
+    </div>
+
+    <div class="card-box" aria-live="polite">
+      <h2>Recommended Routes</h2>
+      {{ empty('routesIdle', 'No routes yet', 'Enter a start and destination, then choose Find Best Route.', 'bi-signpost-split') }}
+      {{ loading('routesLoading', 'Finding routes...') }}
+      {{ empty('routesEmpty', 'No routes found', 'The routing service returned no routes for these locations.', 'bi-slash-circle') }}
+      <div id="routesUnavailable" class="state-block is-hidden" role="status">
+        <i class="bi bi-plug" aria-hidden="true"></i>
+        <div class="state-title">Route service not connected</div>
+        <div class="state-text"></div>
+      </div>
+      {{ error('routesError', 'Could not get routes') }}
+      <div id="routesList" class="is-hidden"></div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="map-wrap" style="height: clamp(360px, 70vh, 640px)">
+      <div id="routeMap" class="map-canvas h-100" role="application" aria-label="Map showing the selected route"></div>
+      <div id="routeMapOverlay" class="map-overlay" role="status"></div>
+    </div>
+    <p class="upload-hint mt-2 mb-0">A route is drawn only when the routing service returns real geometry. Base map &copy; OpenStreetMap contributors.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block vendor_scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/map.js') }}"></script>
+<script src="{{ url_for('static', filename='js/routes.js') }}"></script>
+{% endblock %}

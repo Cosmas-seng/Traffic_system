@@ -1,0 +1,48 @@
+{# Sidebar navigation. `active` is passed by each page route; the active item is highlighted blue. #}
+{% set items = [
+  ('dashboard',       'dashboard',       'bi-speedometer2', 'Dashboard'),
+  ('route_planner',   'route_planner',   'bi-signpost-split', 'Route Planner'),
+  ('report_incident', 'report_incident', 'bi-exclamation-triangle', 'Incidents'),
+  ('predictions',     'predictions',     'bi-graph-up-arrow', 'Predictions'),
+  ('notifications',   'notifications',   'bi-bell', 'Notifications'),
+  ('reports',         'reports',         'bi-bar-chart-line', 'Reports'),
+] %}
+<aside class="app-sidebar" id="appSidebar" aria-label="Main navigation">
+  <a class="sidebar-brand" href="{{ url_for('dashboard') }}">
+    <img src="{{ url_for('static', filename='images/logo.png') }}" alt="" width="24" height="24">
+    <span>Nairobi Traffic</span>
+  </a>
+  <nav>
+    <ul class="sidebar-nav">
+      {% for key, endpoint, icon, label in items %}
+      <li>
+        <a class="sidebar-link {{ 'active' if active == key }}" href="{{ url_for(endpoint) }}"
+           {% if active == key %}aria-current="page"{% endif %}>
+          <i class="bi {{ icon }}" aria-hidden="true"></i><span>{{ label }}</span>
+        </a>
+      </li>
+      {% endfor %}
+      {# The link is only a convenience: /admin and /api/admin/* are enforced by Flask. #}
+      {% if current_user and current_user['role'] == 'admin' %}
+      <li>
+        <a class="sidebar-link {{ 'active' if active == 'admin' }}" href="{{ url_for('admin') }}"
+           {% if active == 'admin' %}aria-current="page"{% endif %}>
+          <i class="bi bi-people" aria-hidden="true"></i><span>Users</span>
+        </a>
+      </li>
+      {% endif %}
+      <li>
+        <a class="sidebar-link {{ 'active' if active == 'profile' }}" href="{{ url_for('profile') }}"
+           {% if active == 'profile' %}aria-current="page"{% endif %}>
+          <i class="bi bi-person" aria-hidden="true"></i><span>Profile</span>
+        </a>
+      </li>
+    </ul>
+  </nav>
+  <div class="sidebar-footer">
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="sidebar-link"><i class="bi bi-box-arrow-left" aria-hidden="true"></i><span>Logout</span></button>
+    </form>
+  </div>
+</aside>

@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Report an Incident{% endblock %}
+{% block vendor_css %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card-box">
+      <h2>Report an Incident</h2>
+      <div id="formAlert" aria-live="polite"></div>
+      <form id="incidentForm" novalidate>
+        <div class="mb-3">
+          <label class="form-label" for="type">Incident type</label>
+          <select class="form-select" id="type" name="type" required>
+            <option value="" selected disabled>Select a type...</option>
+            {% for key, label in incident_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+          </select>
+          <div class="invalid-feedback" data-for="type">Choose an incident type.</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="location_text">Location</label>
+          <div class="input-group">
+            <input class="form-control" id="location_text" name="location_text" placeholder="Search here or click on the map"
+                   required minlength="3" maxlength="200" autocomplete="off" aria-describedby="locHelp">
+            <button class="btn btn-outline-primary" type="button" id="findOnMap" aria-label="Find this location on the map"><i class="bi bi-geo-alt" aria-hidden="true"></i></button>
+          </div>
+          <div id="locHelp" class="upload-hint">Type a place and press the pin, or click the map to drop a marker.</div>
+          <div class="invalid-feedback d-block is-hidden" data-for="location">Click the map to choose the incident location.</div>
+          <div class="invalid-feedback" data-for="location_text">Enter a location (3-200 characters).</div>
+          <input type="hidden" id="latitude" name="latitude"><input type="hidden" id="longitude" name="longitude">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="description">Description <span class="text-muted fw-normal">(optional)</span></label>
+          <textarea class="form-control" id="description" name="description" rows="4" maxlength="1000" placeholder="Provide more details..."></textarea>
+          <div class="d-flex justify-content-between"><div class="invalid-feedback" data-for="description">Description is too long.</div>
+            <span class="upload-hint ms-auto"><span id="descCount">0</span>/1000</span></div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="image">Upload photo <span class="text-muted fw-normal">(optional)</span></label>
+          <input class="form-control" type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp">
+          <div class="upload-hint">PNG, JPG or WebP, up to 5 MB.</div>
+          <div class="invalid-feedback" data-for="image">Choose a valid image.</div>
+          <img id="imagePreview" class="img-thumbnail mt-2 is-hidden" alt="Preview of the selected photo" style="max-height:120px">
+        </div>
+
+        <button class="btn btn-primary w-100" id="submitBtn" type="submit">Submit Report</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="map-wrap" style="height: clamp(360px, 70vh, 640px)">
+      <div id="incidentMap" class="map-canvas h-100" role="application" aria-label="Map to choose the incident location"></div>
+      <div id="incidentMapOverlay" class="map-overlay" role="status"></div>
+    </div>
+    <p class="upload-hint mt-2 mb-0" id="pinInfo">No location selected. Click the map to place a marker. Base map &copy; OpenStreetMap contributors.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block vendor_scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/map.js') }}"></script>
+<script src="{{ url_for('static', filename='js/incidents.js') }}"></script>
+{% endblock %}

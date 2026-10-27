@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block title %}Register{% endblock %}
+{% block layout %}
+<main id="main" class="auth-page">
+  <div class="auth-card">
+    <section class="auth-visual" aria-label="Nairobi skyline">
+      <h2>Join the<br>Nairobi commute</h2>
+      <p>Create an account to report incidents, plan routes and get traffic alerts.</p>
+    </section>
+
+    <section class="auth-form">
+      <div class="auth-logo">
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="" width="44" height="44">
+        <h1>Create Your Account</h1>
+        <p>Nairobi Traffic System</p>
+      </div>
+
+      {% include 'partials/flash_messages.html' %}
+
+      {# No role field exists on purpose: the server always assigns the lowest role. #}
+      <form id="registerForm" method="post" action="{{ url_for('register') }}" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="mb-3">
+          <label class="form-label" for="full_name">Full name</label>
+          <input class="form-control" type="text" id="full_name" name="full_name" value="{{ form.get('full_name', '') }}"
+                 autocomplete="name" required minlength="2" maxlength="100">
+          <div class="invalid-feedback">Enter your full name (2-100 characters).</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="email">Email address</label>
+          <input class="form-control" type="email" id="email" name="email" value="{{ form.get('email', '') }}"
+                 autocomplete="email" required maxlength="254">
+          <div class="invalid-feedback">Enter a valid email address.</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="password">Password</label>
+          <div class="input-icon">
+            <input class="form-control has-toggle" style="padding-left:12px" type="password" id="password" name="password"
+                   autocomplete="new-password" required minlength="8" aria-describedby="pwHelp">
+            <button class="toggle-pw" type="button" data-target="#password" aria-label="Show password" aria-pressed="false">
+              <i class="bi bi-eye" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div id="pwHelp" class="upload-hint">At least 8 characters, mixing letters and numbers.</div>
+          <div class="invalid-feedback">Password must be 8+ characters and mix letters and numbers.</div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="confirm_password">Confirm password</label>
+          <input class="form-control" type="password" id="confirm_password" name="confirm_password"
+                 autocomplete="new-password" required>
+          <div class="invalid-feedback">Passwords do not match.</div>
+        </div>
+
+        <button class="btn btn-primary w-100" type="submit">Register</button>
+      </form>
+
+      <p class="text-center text-muted mt-3 mb-0">Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
+    </section>
+  </div>
+</main>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/auth.js') }}"></script>{% endblock %}

@@ -1,0 +1,25 @@
+{# Reusable loading / empty / error blocks. JavaScript toggles .is-hidden on them.
+   Usage: {% from 'partials/states.html' import loading, empty, error %}
+          {{ loading('routesLoading') }} {{ empty('routesEmpty', 'No routes yet', 'Enter a start and destination.') }} #}
+{% macro loading(id, text='Loading...') %}
+<div id="{{ id }}" class="state-block is-hidden" role="status">
+  <div class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></div>
+  <div class="mt-2">{{ text }}</div>
+</div>
+{% endmacro %}
+
+{% macro empty(id, title='Nothing here yet', text='', icon='bi-inbox') %}
+<div id="{{ id }}" class="state-block is-hidden">
+  <i class="bi {{ icon }}" aria-hidden="true"></i>
+  <div class="state-title">{{ title }}</div>
+  <div>{{ text }}</div>
+</div>
+{% endmacro %}
+
+{% macro error(id, title='Something went wrong') %}
+<div id="{{ id }}" class="state-block error is-hidden" role="alert">
+  <i class="bi bi-exclamation-octagon" aria-hidden="true"></i>
+  <div class="state-title">{{ title }}</div>
+  <div class="state-text"></div>
+</div>
+{% endmacro %}

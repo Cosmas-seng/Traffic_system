@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}My Profile{% endblock %}
+
+{% block content %}
+{% set parts = current_user['full_name'].split() %}
+{% set initials = (parts[0][0] ~ (parts[1][0] if parts|length > 1 else ''))|upper %}
+<div class="row justify-content-center"><div class="col-xl-7 col-lg-9">
+  <div id="profileAlert" aria-live="polite"></div>
+  <div class="card-box mb-3">
+    <h2>My Profile</h2>
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      <span class="avatar avatar-lg" id="avatar" aria-hidden="true">{{ initials }}</span>
+      <div class="flex-grow-1">
+        <div class="fs-5 fw-bold" id="pName">{{ current_user['full_name'] }}</div>
+        <div class="text-primary" id="pEmail">{{ current_user['email'] }}</div>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#editModal">Edit Profile</button>
+        <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#pwModal">Change Password</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-box">
+    <h2>Account Information</h2>
+    <dl class="row mb-0">
+      <dt class="col-sm-4 text-muted fw-normal">Name</dt><dd class="col-sm-8" id="infoName">{{ current_user['full_name'] }}</dd>
+      <dt class="col-sm-4 text-muted fw-normal">Email</dt><dd class="col-sm-8" id="infoEmail">{{ current_user['email'] }}</dd>
+      <dt class="col-sm-4 text-muted fw-normal">Role</dt><dd class="col-sm-8 text-capitalize">{{ current_user['role'] }}</dd>
+      <dt class="col-sm-4 text-muted fw-normal">Member since</dt><dd class="col-sm-8 mb-0" data-utc="{{ current_user['created_at'] }}" id="memberSince">{{ current_user['created_at'][:10] }}</dd>
+    </dl>
+  </div>
+</div></div>
+
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><form class="modal-content" id="editForm" novalidate>
+    <div class="modal-header"><h2 class="modal-title fs-6" id="editTitle">Edit Profile</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <div id="editAlert" aria-live="polite"></div>
+      <div class="mb-3"><label class="form-label" for="editName">Full name</label>
+        <input class="form-control" id="editName" value="{{ current_user['full_name'] }}" required minlength="2" maxlength="100" autocomplete="name">
+        <div class="invalid-feedback">Enter your full name (2-100 characters).</div></div>
+      <div class="mb-1"><label class="form-label" for="editEmail">Email address</label>
+        <input class="form-control" id="editEmail" type="email" value="{{ current_user['email'] }}" required maxlength="254" autocomplete="email">
+        <div class="invalid-feedback">Enter a valid email address.</div></div>
+      <div class="upload-hint">Your role is managed by an administrator and cannot be changed here.</div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="editBtn" type="submit">Save changes</button></div>
+  </form></div>
+</div>
+
+<div class="modal fade" id="pwModal" tabindex="-1" aria-labelledby="pwTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><form class="modal-content" id="pwForm" novalidate>
+    <div class="modal-header"><h2 class="modal-title fs-6" id="pwTitle">Change Password</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <div id="pwAlert" aria-live="polite"></div>
+      <div class="mb-3"><label class="form-label" for="curPw">Current password</label>
+        <input class="form-control" id="curPw" type="password" required autocomplete="current-password"><div class="invalid-feedback">Enter your current password.</div></div>
+      <div class="mb-3"><label class="form-label" for="newPw">New password</label>
+        <input class="form-control" id="newPw" type="password" required minlength="8" autocomplete="new-password">
+        <div class="invalid-feedback">At least 8 characters, mixing letters and numbers.</div></div>
+      <div class="mb-1"><label class="form-label" for="newPw2">Confirm new password</label>
+        <input class="form-control" id="newPw2" type="password" required autocomplete="new-password"><div class="invalid-feedback">Passwords do not match.</div></div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="pwBtn" type="submit">Update password</button></div>
+  </form></div>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='js/profile.js') }}"></script>{% endblock %}

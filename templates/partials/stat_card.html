@@ -1,0 +1,14 @@
+{# Reusable summary card.
+   Usage: {% from 'partials/stat_card.html' import stat_card %}
+          {{ stat_card('Heavy', '--', 'bi-cone-striped', 'red', id='statHeavy', sub='roads') }}
+   `id` is placed on the value element so JavaScript can fill it in. #}
+{% macro stat_card(label, value='--', icon='bi-activity', tone='', id='', sub='') %}
+<div class="card-box stat-card h-100">
+  <div class="stat-icon {{ tone }}" aria-hidden="true"><i class="bi {{ icon }}"></i></div>
+  <div>
+    <p class="stat-label">{{ label }}</p>
+    <p class="stat-value" {% if id %}id="{{ id }}"{% endif %}>{{ value }}</p>
+    {% if sub %}<span class="stat-sub">{{ sub }}</span>{% endif %}
+  </div>
+</div>
+{% endmacro %}

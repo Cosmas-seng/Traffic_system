@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% from 'partials/stat_card.html' import stat_card %}
+{% block title %}Live Traffic Map{% endblock %}
+{% block vendor_css %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+
+{% block content %}
+<div id="trafficNotice" class="alert alert-info py-2 is-hidden" role="status">
+  <i class="bi bi-info-circle me-1" aria-hidden="true"></i><span></span>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">{{ stat_card('Heavy traffic', '--', 'bi-cone-striped', 'red', id='statHeavy', sub='road segments') }}</div>
+  <div class="col-6 col-lg-3">{{ stat_card('Moderate traffic', '--', 'bi-car-front', 'amber', id='statModerate', sub='road segments') }}</div>
+  <div class="col-6 col-lg-3">{{ stat_card('Low traffic', '--', 'bi-check-circle', 'green', id='statLow', sub='road segments') }}</div>
+  <div class="col-6 col-lg-3">{{ stat_card('Incidents reported', '--', 'bi-exclamation-triangle', '', id='statIncidents', sub='all recent reports') }}</div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-9">
+    <div class="map-wrap" style="height: clamp(380px, 62vh, 620px)">
+      <form class="map-search" id="searchForm" role="search">
+        <label class="visually-hidden" for="searchInput">Search roads or locations</label>
+        <input class="form-control" id="searchInput" type="search" placeholder="Search location..." autocomplete="off" maxlength="120">
+      </form>
+      <div id="trafficMap" class="map-canvas h-100" role="application" aria-label="Interactive map of Nairobi"></div>
+      <div id="mapOverlay" class="map-overlay" role="status"></div>
+    </div>
+    <div id="searchResults" class="list-group mt-2 is-hidden" aria-label="Search results"></div>
+    <p class="upload-hint mt-2 mb-0">Base map &copy; OpenStreetMap contributors. The base map does not show live traffic; coloured roads appear only when a traffic data provider is connected.</p>
+  </div>
+
+  <div class="col-lg-3">
+    <div class="card-box mb-3">
+      <h2>Traffic Status</h2>
+      <ul class="list-unstyled mb-0">
+        <li class="mb-2"><span class="dot heavy" aria-hidden="true"></span>Heavy</li>
+        <li class="mb-2"><span class="dot moderate" aria-hidden="true"></span>Moderate</li>
+        <li><span class="dot low" aria-hidden="true"></span>Low</li>
+      </ul>
+    </div>
+    <div class="card-box">
+      <h2>Quick Info</h2>
+      <p class="stat-label mb-0">Map centre</p>
+      <p class="fw-semibold mb-2">Nairobi CBD</p>
+      <p class="stat-label mb-0">Traffic delay</p>
+      <p class="stat-value mb-2" id="statDelay">--</p>
+      <p class="stat-label mb-0">Last updated</p>
+      <p class="fw-semibold mb-0" id="lastUpdated">--</p>
+    </div>
+  </div>
+</div>
+
+<div class="card-box mt-3">
+  <h2>Recent Incidents</h2>
+  <div id="incLoading" class="state-block" role="status"><div class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></div><div class="mt-2">Loading incidents...</div></div>
+  <div id="incEmpty" class="state-block is-hidden"><i class="bi bi-inbox" aria-hidden="true"></i><div class="state-title">No incidents reported</div><div>Reports from users will appear here and on the map.</div></div>
+  <div id="incError" class="state-block error is-hidden" role="alert"><i class="bi bi-exclamation-octagon" aria-hidden="true"></i><div class="state-title">Could not load incidents</div><div class="state-text"></div></div>
+  <div id="incTableWrap" class="table-responsive is-hidden">
+    <table class="table table-compact">
+      <thead><tr><th>Type</th><th>Location</th><th>Reported</th></tr></thead>
+      <tbody id="incBody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block vendor_scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/map.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}
