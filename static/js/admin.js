@@ -83,7 +83,6 @@
         try {
           await TS.api("/api/admin/users/" + u.id, {
             method: "PUT",
-            json: { is_active: false },
           });
           TS.alertIn(
             "adminAlert",
@@ -119,7 +118,6 @@
     $("uEmail").value = u ? u.email : "";
     $("uEmail").disabled = !!u; // email is the login id
     $("uRole").value = u ? u.role : "commuter";
-    $("uActive").checked = u ? u.is_active : true;
     $("pwGroup").classList.toggle("is-hidden", !!u);
     $("activeGroup").classList.toggle("is-hidden", !u);
     $("uPw").value = "";
@@ -160,7 +158,6 @@
           json: {
             full_name: name.value.trim(),
             role: $("uRole").value,
-            is_active: $("uActive").checked,
           },
         });
       else

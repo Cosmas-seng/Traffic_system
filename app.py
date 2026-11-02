@@ -1,22 +1,12 @@
-"""
-Nairobi Traffic System - Flask application.
 
-No existing backend was found in the workspace, so this file provides a
-minimal, working reference backend for the frontend. It uses SQLite so it runs
-anywhere. All SQL is isolated in the `db_*` helpers and the `get_db()` function,
-so you can point them at your existing MySQL/MariaDB database (PyMySQL) without
-touching templates or JavaScript.
-
-Honest-by-design: live traffic, route optimisation and AI predictions need
-external providers/models. Those endpoints respond with {"available": false}
-(or HTTP 501) until you connect them; nothing is faked.
-"""
 import os
 import secrets
-import sqlite3
+import pymysql
+from pymysql.constants import CLIENT
+from pymysql.cursors import DictCursor
 import sys
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from getpass import getpass
 
@@ -33,80 +23,83 @@ MAGIC = {  # file signatures, checked in addition to the extension
     b"\xff\xd8\xff": "jpg",
     b"RIFF": "webp",
 }
+# Must match the incidents.incident_type ENUM in the database.
 INCIDENT_TYPES = {"accident": "Accident", "road_closure": "Road closure",
-                  "hazard": "Road hazard", "heavy_congestion": "Heavy congestion"}
+                  "hazard": "Road hazard", "breakdown": "Vehicle breakdown",
+                  "construction": "Construction", "other": "Other"}
+# The API/templates say "admin"; the users.role ENUM says "administrator".
+ROLE_TO_DB = {"admin": "administrator",
+              "driver": "driver", "commuter": "commuter"}
+ROLE_FROM_DB = {v: k for k, v in ROLE_TO_DB.items()}
 
 app = Flask(__name__)
 # SECRET_KEY must come from the environment in production. A random per-process
 # key is used for local development only (sessions reset on restart).
 app.config.update(
     SECRET_KEY=os.environ.get("SECRET_KEY") or secrets.token_hex(32),
-    DATABASE=os.environ.get(
-        "DATABASE_PATH", os.path.join(BASE_DIR, "traffic.db")),
     MAX_CONTENT_LENGTH=5 * 1024 * 1024,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
 )
+
+DB_CFG = {
+    "host": os.environ.get("DB_HOST", "127.0.0.1"),
+    "port": int(os.environ.get("DB_PORT", "3306")),
+    "user": os.environ.get("DB_USER", "root"),
+    "password": os.environ.get("DB_PASSWORD", ""),
+    "database": os.environ.get("DB_NAME", "ai_system"),
+    "charset": "utf8mb4",
+    "cursorclass": DictCursor,
+    "connect_timeout": 5,
+    # rowcount = rows matched (not only changed), so re-marking a notification
+    # as read is not reported as "not found".
+    "client_flag": CLIENT.FOUND_ROWS,
+}
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  full_name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'commuter',
-  is_active INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS incidents (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  type TEXT NOT NULL,
-  location_text TEXT NOT NULL,
-  latitude REAL NOT NULL,
-  longitude REAL NOT NULL,
-  description TEXT,
-  image_file TEXT,
-  created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS notifications (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER,            -- NULL = broadcast to everyone
-  category TEXT NOT NULL,     -- congestion | incident | route
-  title TEXT NOT NULL,
-  message TEXT,
-  is_read INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
-);
-"""
 
 # ------------------------------------------------------------------ database
 
 
+class MySQLDatabase:
+    """Small adapter that supports the app's db.execute(...).fetchone() pattern."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, sql, params=()):
+        # Convert SQLite-style placeholders left in this file to PyMySQL placeholders.
+        cursor = self.connection.cursor()
+        cursor.execute(sql.replace("?", "%s"), params)
+        return cursor
+
+    def commit(self):
+        self.connection.commit()
+
+    def rollback(self):
+        self.connection.rollback()
+
+    def close(self):
+        self.connection.close()
+
+
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(app.config["DATABASE"])
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        g.db = MySQLDatabase(pymysql.connect(**DB_CFG))
     return g.db
 
 
 @app.teardown_appcontext
 def close_db(_exc):
-    db = g.pop("db", None)
-    if db is not None:
-        db.close()
-
-
-def init_db():
-    with sqlite3.connect(app.config["DATABASE"]) as con:
-        con.executescript(SCHEMA)
+    conn = g.pop("db", None)
+    if conn is not None:
+        conn.close()
 
 
 def now_iso():
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def current_user():
@@ -114,9 +107,16 @@ def current_user():
     if not uid:
         return None
     # Always re-read from the DB: never trust role data stored client-side.
-    row = get_db().execute("SELECT * FROM users WHERE id=? AND is_active=1", (uid,)).fetchone()
+    row = get_db().execute("SELECT * FROM users WHERE id=? ", (uid,)).fetchone()
     if row is None:
         session.clear()
+        return None
+    return norm_user(row)
+
+
+def norm_user(row):
+    """Translate the DB role value ('administrator') to the app's ('admin')."""
+    row["role"] = ROLE_FROM_DB.get(row["role"], row["role"])
     return row
 
 
@@ -202,7 +202,7 @@ def login():
         email = request.form.get("email", "").strip().lower()
         pw = request.form.get("password", "")
         row = get_db().execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        if row and row["is_active"] and check_password_hash(row["password_hash"], pw):
+        if row and check_password_hash(row["password_hash"], pw):
             session.clear()
             session.permanent = True
             session["uid"] = row["id"]
@@ -211,7 +211,7 @@ def login():
             if nxt.startswith("/") and not nxt.startswith("//"):
                 return redirect(nxt)
             return redirect(url_for("dashboard"))
-        flash("Invalid email or password, or the account is deactivated.", "danger")
+        flash("Invalid email or password.", "danger")
     return render_template("login.html")
 
 
@@ -240,7 +240,7 @@ def register():
                 "INSERT INTO users(full_name,email,password_hash,role,created_at) VALUES(?,?,?,?,?)",
                 (name, email, generate_password_hash(pw), "commuter", now_iso()))
             get_db().commit()
-        except sqlite3.IntegrityError:
+        except pymysql.err.IntegrityError:
             flash("An account with that email already exists.", "danger")
             return render_template("register.html", form=request.form), 400
         flash("Account created. You can log in now.", "success")
@@ -311,17 +311,53 @@ def forbidden(_e):
     return render_template("login.html", forbidden=True), 403
 
 
+# MySQL error codes that mean "cannot connect / not allowed in" (a real outage
+# or misconfiguration), as opposed to a bug in a query.
+DB_CONNECTION_ERRORS = {1040, 1044, 1045, 1049, 2002, 2003, 2005, 2006, 2013}
+
+
+@app.errorhandler(pymysql.err.MySQLError)
+def db_error(e):
+    """The real reason (code + driver message) goes to the server log only,
+    never to the browser."""
+    code = e.args[0] if e.args else None
+    app.logger.error("Database error %s (host=%s port=%s user=%s db=%s)",
+                     e.args, DB_CFG["host"], DB_CFG["port"],
+                     DB_CFG["user"], DB_CFG["database"])
+    if code in DB_CONNECTION_ERRORS:
+        msg, status = "Database unavailable. Please try again shortly.", 503
+    else:
+        msg, status = "A database error occurred. Please contact the administrator.", 500
+    if request.path.startswith("/api/"):
+        return jsonify(error=msg), status
+    return msg, status
+
+
 # ----------------------------------------------------------------- JSON API
+def iso(v):
+    """DATETIME columns come back as datetime objects; send 'YYYY-MM-DD HH:MM:SS'
+    (UTC) as documented, instead of Flask's default RFC 822 format."""
+    return v.strftime("%Y-%m-%d %H:%M:%S") if hasattr(v, "strftime") else v
+
+
+def num(v):
+    """DECIMAL columns come back as Decimal (serialized as strings); Leaflet
+    needs real numbers."""
+    return float(v) if v is not None else None
+
+
 def row_user(r):
     return {"id": r["id"], "full_name": r["full_name"], "email": r["email"],
-            "role": r["role"], "is_active": bool(r["is_active"]), "created_at": r["created_at"]}
+            "role": r["role"], "created_at": iso(r["created_at"])}
 
 
 def row_incident(r):
-    return {"id": r["id"], "type": r["type"], "type_label": INCIDENT_TYPES.get(r["type"], r["type"]),
-            "location_text": r["location_text"], "latitude": r["latitude"],
-            "longitude": r["longitude"], "description": r["description"],
-            "has_image": bool(r["image_file"]), "created_at": r["created_at"]}
+    t = r["incident_type"]
+    return {"id": r["incident_id"], "type": t, "type_label": INCIDENT_TYPES.get(t, t),
+            "location_text": r["location_text"], "latitude": num(r["latitude"]),
+            "longitude": num(r["longitude"]), "description": r["description"],
+            "has_image": bool(r["image_file"]), "status": r["status"],
+            "created_at": iso(r["reported_at"])}
 
 
 @app.get("/api/traffic")
@@ -330,10 +366,10 @@ def api_traffic():
     """Traffic levels need a live data provider (not connected). We still report
     real incident counts from the database."""
     db = get_db()
-    since = (datetime.utcnow() - timedelta(hours=24)
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)
              ).strftime("%Y-%m-%d %H:%M:%S")
     n = db.execute(
-        "SELECT COUNT(*) c FROM incidents WHERE created_at>=?", (since,)).fetchone()["c"]
+        "SELECT COUNT(*) c FROM incidents WHERE reported_at>=?", (since,)).fetchone()["c"]
     return jsonify(available=False, provider=None,
                    message="No live traffic provider is connected. Congestion levels, delay "
                            "and segments will appear here once one is integrated.",
@@ -343,7 +379,8 @@ def api_traffic():
 @app.get("/api/incidents")
 @login_required
 def api_incidents():
-    rows = get_db().execute("SELECT * FROM incidents ORDER BY id DESC LIMIT 200").fetchall()
+    rows = get_db().execute(
+        "SELECT * FROM incidents ORDER BY incident_id DESC LIMIT 200").fetchall()
     return jsonify(incidents=[row_incident(r) for r in rows])
 
 
@@ -393,14 +430,18 @@ def api_incidents_post():
         img.save(os.path.join(UPLOAD_DIR, saved))
     db = get_db()
     cur = db.execute(
-        "INSERT INTO incidents(user_id,type,location_text,latitude,longitude,description,image_file,created_at)"
+        "INSERT INTO incidents(user_id,incident_type,location_text,latitude,longitude,description,image_file,reported_at)"
         " VALUES(?,?,?,?,?,?,?,?)",
         (current_user()["id"], itype, loc, lat, lng, desc or None, saved, now_iso()))
-    db.execute("INSERT INTO notifications(user_id,category,title,message,created_at) VALUES(NULL,'incident',?,?,?)",
-               (f"{INCIDENT_TYPES[itype]} reported", loc, now_iso()))
+    incident_id = cur.lastrowid
+    # notifications.user_id is NOT NULL (no broadcast rows), so alert every user
+    # with one row each. Same transaction as the incident: both or neither.
+    db.execute("INSERT INTO notifications(user_id,incident_id,message,created_at) "
+               "SELECT id,?,?,? FROM users",
+               (incident_id, f"{INCIDENT_TYPES[itype]} reported: {loc}", now_iso()))
     db.commit()
-    row = db.execute("SELECT * FROM incidents WHERE id=?",
-                     (cur.lastrowid,)).fetchone()
+    row = db.execute("SELECT * FROM incidents WHERE incident_id=?",
+                     (incident_id,)).fetchone()
     return jsonify(incident=row_incident(row)), 201
 
 
@@ -430,18 +471,25 @@ def api_predictions():
 @login_required
 def api_notifications():
     rows = get_db().execute(
-        "SELECT * FROM notifications WHERE user_id IS NULL OR user_id=? ORDER BY id DESC LIMIT 100",
+        "SELECT n.notification_id, n.incident_id, n.message, n.is_read, n.created_at, "
+        "i.incident_type FROM notifications n "
+        "LEFT JOIN incidents i ON i.incident_id=n.incident_id "
+        "WHERE n.user_id=? ORDER BY n.notification_id DESC LIMIT 100",
         (current_user()["id"],)).fetchall()
+    # The table has no category/title columns, so derive them for the frontend.
     return jsonify(notifications=[{
-        "id": r["id"], "category": r["category"], "title": r["title"],
-        "message": r["message"], "is_read": bool(r["is_read"]), "created_at": r["created_at"]} for r in rows])
+        "id": r["notification_id"],
+        "category": "incident" if r["incident_id"] else "system",
+        "title": (f"{INCIDENT_TYPES.get(r['incident_type'], r['incident_type'])} reported"
+                  if r["incident_type"] else "Notification"),
+        "message": r["message"], "is_read": bool(r["is_read"]), "created_at": iso(r["created_at"])} for r in rows])
 
 
 @app.post("/api/notifications/<int:nid>/read")
 @login_required
 def api_notification_read(nid):
     db = get_db()
-    cur = db.execute("UPDATE notifications SET is_read=1 WHERE id=? AND (user_id IS NULL OR user_id=?)",
+    cur = db.execute("UPDATE notifications SET is_read=1 WHERE notification_id=? AND user_id=?",
                      (nid, current_user()["id"]))
     db.commit()
     if cur.rowcount == 0:
@@ -469,7 +517,7 @@ def api_profile_put():
         get_db().execute("UPDATE users SET full_name=?, email=? WHERE id=?",
                          (name, email, current_user()["id"]))
         get_db().commit()
-    except sqlite3.IntegrityError:
+    except pymysql.err.IntegrityError:
         return jsonify(error="That email is already in use."), 409
     return jsonify(profile=row_user(current_user()))
 
@@ -504,7 +552,7 @@ def api_admin_users():
         args += [f"%{q}%", f"%{q}%"]
     if role in ("admin", "driver", "commuter"):
         where.append("role=?")
-        args.append(role)
+        args.append(ROLE_TO_DB[role])
     db = get_db()
     total = db.execute(
         f"SELECT COUNT(*) c FROM users WHERE {' AND '.join(where)}", args).fetchone()["c"]
@@ -526,9 +574,9 @@ def api_admin_users_post():
         return jsonify(error=password_problem(pw)), 422
     try:
         get_db().execute("INSERT INTO users(full_name,email,password_hash,role,created_at) VALUES(?,?,?,?,?)",
-                         (name, email, generate_password_hash(pw), role, now_iso()))
+                         (name, email, generate_password_hash(pw), ROLE_TO_DB[role], now_iso()))
         get_db().commit()
-    except sqlite3.IntegrityError:
+    except pymysql.err.IntegrityError:
         return jsonify(error="That email is already in use."), 409
     return jsonify(ok=True), 201
 
@@ -541,15 +589,15 @@ def api_admin_users_put(uid):
     target = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
     if target is None:
         return jsonify(error="User not found."), 404
+    norm_user(target)
     name = str(d.get("full_name", target["full_name"])).strip()
     role = d.get("role", target["role"])
-    active = 1 if d.get("is_active", bool(target["is_active"])) else 0
     if not (2 <= len(name) <= 100) or role not in ("admin", "driver", "commuter"):
         return jsonify(error="Invalid name or role."), 422
-    if uid == current_user()["id"] and (role != "admin" or not active):
+    if uid == current_user()["id"] and (role != "admin"):
         return jsonify(error="You cannot demote or deactivate your own account."), 400
-    db.execute("UPDATE users SET full_name=?, role=?, is_active=? WHERE id=?",
-               (name, role, active, uid))
+    db.execute("UPDATE users SET full_name=?, role=? WHERE id=?",
+               (name, ROLE_TO_DB[role], uid))
     db.commit()
     return jsonify(ok=True)
 
@@ -570,21 +618,23 @@ def api_reports():
     db = get_db()
     a, b = d0.strftime("%Y-%m-%d"), d1.strftime("%Y-%m-%d")
     total = db.execute(
-        "SELECT COUNT(*) c FROM incidents WHERE created_at>=? AND created_at<?", (a, b)).fetchone()["c"]
-    by_type = db.execute("SELECT type, COUNT(*) c FROM incidents WHERE created_at>=? AND created_at<? GROUP BY type",
+        "SELECT COUNT(*) c FROM incidents WHERE reported_at>=? AND reported_at<?", (a, b)).fetchone()["c"]
+    by_type = db.execute("SELECT incident_type AS type, COUNT(*) c FROM incidents "
+                         "WHERE reported_at>=? AND reported_at<? GROUP BY incident_type",
                          (a, b)).fetchall()
-    by_day = db.execute("SELECT substr(created_at,1,10) d, COUNT(*) c FROM incidents "
-                        "WHERE created_at>=? AND created_at<? GROUP BY d ORDER BY d", (a, b)).fetchall()
-    reporters = db.execute("SELECT COUNT(DISTINCT user_id) c FROM incidents WHERE created_at>=? AND created_at<?",
+    by_day = db.execute("SELECT DATE(reported_at) d, COUNT(*) c FROM incidents "
+                        "WHERE reported_at>=? AND reported_at<? GROUP BY d ORDER BY d", (a, b)).fetchall()
+    reporters = db.execute("SELECT COUNT(DISTINCT user_id) c FROM incidents WHERE reported_at>=? AND reported_at<?",
                            (a, b)).fetchone()["c"]
-    hot = db.execute("SELECT location_text, COUNT(*) c FROM incidents WHERE created_at>=? AND created_at<? "
-                     "GROUP BY location_text ORDER BY c DESC LIMIT 1", (a, b)).fetchone()
+    hot = db.execute("SELECT location_text, COUNT(*) c FROM incidents WHERE reported_at>=? AND reported_at<? "
+                     "AND location_text IS NOT NULL GROUP BY location_text ORDER BY c DESC LIMIT 1",
+                     (a, b)).fetchone()
     return jsonify(
         total_incidents=total, active_reporters=reporters,
         most_reported_location=hot["location_text"] if hot else None,
         by_type=[{"type": r["type"], "label": INCIDENT_TYPES.get(
             r["type"], r["type"]), "count": r["c"]} for r in by_type],
-        by_day=[{"date": r["d"], "count": r["c"]} for r in by_day],
+        by_day=[{"date": str(r["d"]), "count": r["c"]} for r in by_day],
         traffic_trend={"available": False,
                        "message": "Congestion trends and travel-time averages need a live traffic data provider."})
 
@@ -592,19 +642,23 @@ def api_reports():
 # --------------------------------------------------------------------- CLI
 def create_admin():
     """python app.py create-admin  -> prompts for details, password never echoed."""
-    init_db()
     name = input("Full name: ").strip()
     email = input("Email: ").strip().lower()
     pw = getpass("Password: ")
     if not valid_email(email) or password_problem(pw):
         sys.exit(password_problem(pw) or "Invalid email.")
-    with sqlite3.connect(app.config["DATABASE"]) as con:
-        con.execute("INSERT INTO users(full_name,email,password_hash,role,created_at) VALUES(?,?,?,?,?)",
-                    (name, email, generate_password_hash(pw), "admin", now_iso()))
+    try:
+        with app.app_context():
+            db = get_db()
+            db.execute(
+                "INSERT INTO users(full_name,email,password_hash,role,created_at) "
+                "VALUES(?,?,?,?,?)",
+                (name, email, generate_password_hash(pw), "administrator", now_iso()))
+            db.commit()
+    except pymysql.err.IntegrityError:
+        sys.exit("An account with that email already exists.")
     print("Administrator created.")
 
-
-init_db()
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "create-admin":

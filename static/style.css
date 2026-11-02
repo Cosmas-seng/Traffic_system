@@ -603,7 +603,8 @@ a {
 .auth-visual {
   flex: 1 1 50%;
   position: relative;
-  background: var(--navy) url("../images/nairobi-skyline.jpg") center/cover;
+  background: var(--navy) url("../static/images/nairobi-skyline.jpg")
+    center/cover;
   color: #fff;
   display: flex;
   flex-direction: column;
