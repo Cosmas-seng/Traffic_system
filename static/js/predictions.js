@@ -1,11 +1,3 @@
-/* Predictions page: GET /api/predictions?location=<id>&horizon=<minutes>
- *
- * Contract when a model is connected:
- * { available: true, model_status: 'ready', locations: [{id, name}],
- *   current_level, predicted_level, estimated_delay_min, generated_at,
- *   model: {name, version}, history: [{t, value}], forecast: [{t, value}] }
- * `value` is a congestion index (0-100). Without a model nothing is shown but an explanation.
- */
 (function () {
   "use strict";
   const $ = (id) => document.getElementById(id);
