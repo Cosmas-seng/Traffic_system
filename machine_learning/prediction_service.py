@@ -81,7 +81,19 @@ class PredictionService:
                          "fresh": bool(age is not None and age <= cfg.MAX_OBSERVATION_AGE_MIN)}}
 
     def catalogue(self, db):
-        segs = db.frame("SELECT s.id, s.name FROM road_segments s WHERE EXISTS (SELECT 1 FROM traffic_records r WHERE r.segment_id = s.id) ORDER BY s.name") \
+
+        segs = db.frame("""
+    SELECT
+        s.segment_id AS id,
+        s.road_name AS name
+    FROM road_segments AS s
+    WHERE EXISTS (
+        SELECT 1
+        FROM traffic_records AS r
+        WHERE r.segment_id = s.segment_id
+    )
+    ORDER BY s.road_name
+""")\
             if db.has_table("road_segments") and db.has_table("traffic_records") else pd.DataFrame(columns=["id", "name"])
         return [{"id": int(r.id), "name": r.name} for r in segs.itertuples()]
 
