@@ -78,7 +78,7 @@ def _calendar_names(prefix, fcfg):
 def calendar_features(ts, fcfg, prefix=""):
     local = ts + pd.Timedelta(hours=fcfg["utc_offset_hours"])
     hf = local.dt.hour + local.dt.minute / 60.0
-    dow = local.dt.dayofweek
+    dow = local.dt.day_of_week
     rush = np.zeros(len(ts), dtype=bool)
     for a, b in fcfg["rush_hours"]:
         rush |= ((hf >= a) & (hf < b)).to_numpy()

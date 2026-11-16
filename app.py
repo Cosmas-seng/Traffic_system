@@ -1,5 +1,6 @@
 
 import os
+import sqlite3
 import secrets
 import pymysql
 from pymysql.constants import CLIENT
@@ -14,6 +15,9 @@ from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
                    request, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+from machine_learning import data_loader as ml_data
+from machine_learning import model_evaluation as ml_evaluation
+from machine_learning.prediction_service import PredictionService
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
@@ -33,6 +37,8 @@ ROLE_TO_DB = {"admin": "administrator",
 ROLE_FROM_DB = {v: k for k, v in ROLE_TO_DB.items()}
 
 app = Flask(__name__)
+PREDICTOR = PredictionService()
+ROUTING_ENGINE = None
 # SECRET_KEY must come from the environment in production. A random per-process
 # key is used for local development only (sessions reset on restart).
 app.config.update(
@@ -72,7 +78,10 @@ class MySQLDatabase:
     def execute(self, sql, params=()):
         # Convert SQLite-style placeholders left in this file to PyMySQL placeholders.
         cursor = self.connection.cursor()
-        cursor.execute(sql.replace("?", "%s"), params)
+        if isinstance(self.connection, sqlite3.Connection):
+            cursor.execute(sql, params)
+        else:
+            cursor.execute(sql.replace("?", "%s"), params)
         return cursor
 
     def commit(self):
@@ -87,8 +96,47 @@ class MySQLDatabase:
 
 def get_db():
     if "db" not in g:
-        g.db = MySQLDatabase(pymysql.connect(**DB_CFG))
+        test_path = app.config.get("DATABASE") or os.environ.get("DATABASE_PATH")
+        if test_path:
+            conn = sqlite3.connect(test_path)
+            conn.row_factory = sqlite3.Row
+            g.db = MySQLDatabase(conn)
+        else:
+            g.db = MySQLDatabase(pymysql.connect(**DB_CFG))
     return g.db
+
+
+def ml_db():
+    """Open the traffic database through the ML adapter, honoring test/local SQLite config."""
+    path = app.config.get("DATABASE") or os.environ.get("DATABASE_PATH")
+    if path:
+        return ml_data.Database(sqlite3.connect(path), engine="sqlite")
+    return ml_data.Database.from_env()
+
+
+def init_db():
+    """Initialize the app-owned tables in the configured local/test SQLite DB."""
+    path = app.config.get("DATABASE") or os.environ.get("DATABASE_PATH")
+    if not path:
+        raise RuntimeError("DATABASE/DATABASE_PATH must point to a SQLite file")
+    with sqlite3.connect(path) as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
+                role TEXT NOT NULL, created_at TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS incidents (
+                incident_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
+                incident_type TEXT, location_text TEXT, latitude REAL, longitude REAL,
+                description TEXT, image_file TEXT, reported_at TEXT, created_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS notifications (
+                notification_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                incident_id INTEGER, message TEXT NOT NULL, is_read INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+        """)
 
 
 @app.teardown_appcontext
@@ -116,6 +164,7 @@ def current_user():
 
 def norm_user(row):
     """Translate the DB role value ('administrator') to the app's ('admin')."""
+    row = dict(row)
     row["role"] = ROLE_FROM_DB.get(row["role"], row["role"])
     return row
 
@@ -451,20 +500,142 @@ def api_routes():
     data = request.get_json(silent=True) or {}
     if not str(data.get("origin", "")).strip() or not str(data.get("destination", "")).strip():
         return jsonify(error="Both a start and a destination are required."), 422
-    # Needs a routing engine (OSRM, GraphHopper, Valhalla...) plus traffic data.
-    return jsonify(available=False, routes=[],
-                   error="Route optimisation is not connected yet. Connect a routing engine "
-                         "to POST /api/routes to see results."), 501
+    if ROUTING_ENGINE is None:
+        return jsonify(available=False, routes=[],
+                       error="Route optimisation is not connected yet. Connect a routing engine "
+                             "to POST /api/routes to see results."), 501
+    try:
+        db = ml_db()
+        candidates = ROUTING_ENGINE(data["origin"], data["destination"])
+        from services import routing_service
+        catalogue = PREDICTOR.catalogue(db)
+        speeds = {}
+        for seg in catalogue:
+            pred = PREDICTOR.predict(db, seg["id"], PREDICTOR.horizons()[0]) if PREDICTOR.horizons() else {}
+            if pred.get("available"):
+                speeds[seg["id"]] = pred["predicted_speed_kmh"]
+        ranked = routing_service.rank_routes(candidates, routing_service.speed_lookup([], speeds))
+        return jsonify(available=True, routes=ranked)
+    except Exception:
+        app.logger.exception("Route planning failed")
+        return jsonify(error="Route planning failed."), 500
 
 
 @app.get("/api/predictions")
 @login_required
 def api_predictions():
-    # Needs a trained model. Contract the frontend expects when connected:
-    # {available:true, road, horizon_minutes, current_level, predicted_level,
-    #  estimated_delay_min, generated_at, model:{name,version}, history:[{t,value}], forecast:[{t,value}]}
-    return jsonify(available=False, model_status="not_connected", locations=[],
-                   message="No traffic prediction model is connected.")
+    try:
+        db = ml_db()
+        location = request.args.get("location")
+        horizon = request.args.get("horizon")
+        if location is None and horizon is None:
+            status = PREDICTOR.status(db)
+            locations = PREDICTOR.catalogue(db) if status["horizons"] else []
+            return jsonify(available=bool(status["horizons"]), locations=locations,
+                           message="No trained model is deployed. Run train_model to create one." if not status["horizons"] else None, **status)
+        if location is None or horizon is None or not location.isdecimal() or not horizon.isdecimal() or int(location) < 1 or int(horizon) < 1:
+            return jsonify(error="location and horizon must be positive integers."), 422
+        return jsonify(PREDICTOR.predict(db, int(location), int(horizon)))
+    except Exception:
+        app.logger.exception("Prediction request failed")
+        return jsonify(error="Prediction request failed."), 500
+    finally:
+        if "db" in locals(): db.close()
+
+
+@app.get("/api/predictions/<int:segment_id>")
+@login_required
+def api_prediction_one(segment_id):
+    horizon = request.args.get("horizon")
+    if horizon is None or not horizon.isdecimal() or int(horizon) < 1:
+        return jsonify(error="horizon must be a positive integer."), 422
+    try:
+        db = ml_db()
+        return jsonify(PREDICTOR.predict(db, segment_id, int(horizon)))
+    except Exception:
+        app.logger.exception("Prediction request failed")
+        return jsonify(error="Prediction request failed."), 500
+    finally:
+        if "db" in locals(): db.close()
+
+
+@app.get("/api/predictions/<int:segment_id>/history")
+@login_required
+def api_prediction_history(segment_id):
+    try:
+        db = ml_db()
+        return jsonify(kind="model_predictions", predictions=PREDICTOR.history(db, segment_id))
+    except Exception:
+        app.logger.exception("Prediction history request failed")
+        return jsonify(error="Prediction history request failed."), 500
+    finally:
+        if "db" in locals(): db.close()
+
+
+@app.get("/api/models/status")
+@login_required
+def api_models_status():
+    try:
+        db = ml_db()
+        return jsonify(PREDICTOR.status(db))
+    except Exception:
+        app.logger.exception("Model status request failed")
+        return jsonify(error="Model status request failed."), 500
+    finally:
+        if "db" in locals(): db.close()
+
+
+@app.post("/api/predictions/generate")
+@admin_required
+def api_predictions_generate():
+    data = request.get_json(silent=True) or {}
+    if not data:
+        try:
+            db = ml_db()
+            return jsonify(PREDICTOR.generate_all(db))
+        except Exception:
+            app.logger.exception("Prediction generation failed")
+            return jsonify(error="Prediction generation failed."), 500
+        finally:
+            if "db" in locals(): db.close()
+    road_id, horizon = data.get("road_id"), data.get("horizon")
+    if (isinstance(road_id, bool) or not isinstance(road_id, int) or road_id < 1 or
+            isinstance(horizon, bool) or not isinstance(horizon, int) or horizon < 1):
+        return jsonify(error="road_id and horizon must be positive integers."), 422
+    try:
+        db = ml_db()
+        return jsonify(PREDICTOR.predict(db, road_id, horizon, persist=True))
+    except Exception:
+        app.logger.exception("Prediction generation failed")
+        return jsonify(error="Prediction generation failed."), 500
+    finally:
+        if "db" in locals(): db.close()
+
+
+@app.get("/api/models/metrics")
+@admin_required
+def api_models_metrics():
+    try:
+        db = ml_db()
+        realized = ml_evaluation.realized_error(db)
+        from machine_learning import model_registry as registry
+        from machine_learning import model_config
+        import json
+        from pathlib import Path
+        reports = {}
+        for horizon in PREDICTOR.horizons():
+            version = registry.current_version(horizon, PREDICTOR.models_dir)
+            report_path = (Path(PREDICTOR.models_dir or model_config.MODELS_DIR) /
+                           f"h{horizon}" / version / "metrics.json")
+            report = json.loads(report_path.read_text())
+            reports[str(horizon)] = {"version": version,
+                                     "test": report.get("test", [])}
+        return jsonify(horizons=reports, realized=realized)
+    except Exception:
+        app.logger.exception("Model metrics request failed")
+        return jsonify(error="Model metrics request failed."), 500
+    finally:
+        if "db" in locals(): db.close()
 
 
 @app.get("/api/notifications")

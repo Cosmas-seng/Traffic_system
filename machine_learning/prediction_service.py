@@ -81,19 +81,20 @@ class PredictionService:
                          "fresh": bool(age is not None and age <= cfg.MAX_OBSERVATION_AGE_MIN)}}
 
     def catalogue(self, db):
-
+        id_col, name_col = (("id", "name") if db.engine == "sqlite"
+                            else ("segment_id", "road_name"))
         segs = db.frame("""
     SELECT
-        s.segment_id AS id,
-        s.road_name AS name
+        s.{id_col} AS id,
+        s.{name_col} AS name
     FROM road_segments AS s
     WHERE EXISTS (
         SELECT 1
         FROM traffic_records AS r
-        WHERE r.segment_id = s.segment_id
+        WHERE r.segment_id = s.{id_col}
     )
-    ORDER BY s.road_name
-""")\
+    ORDER BY s.{name_col}
+""".format(id_col=id_col, name_col=name_col))\
             if db.has_table("road_segments") and db.has_table("traffic_records") else pd.DataFrame(columns=["id", "name"])
         return [{"id": int(r.id), "name": r.name} for r in segs.itertuples()]
 
