@@ -1,0 +1,72 @@
+{
+  "started": "2026-11-17 12:59:14.481932",
+  "status": "no_model_deployed",
+  "horizons": {
+    "15": {
+      "horizon": 15,
+      "rows": {
+        "train": 0,
+        "validation": 0,
+        "test": 0
+      },
+      "status": "skipped",
+      "reason": "not enough rows (train>=2000, validation>=100, test>=200 required)"
+    },
+    "30": {
+      "horizon": 30,
+      "rows": {
+        "train": 0,
+        "validation": 0,
+        "test": 0
+      },
+      "status": "skipped",
+      "reason": "not enough rows (train>=2000, validation>=100, test>=200 required)"
+    },
+    "60": {
+      "horizon": 60,
+      "rows": {
+        "train": 0,
+        "validation": 0,
+        "test": 0
+      },
+      "status": "skipped",
+      "reason": "not enough rows (train>=2000, validation>=100, test>=200 required)"
+    }
+  },
+  "data_quality": {
+    "rows_in": 14,
+    "removed": {
+      "impossible_speed_set_missing": 0,
+      "impossible_vehicle_count_set_missing": 0,
+      "impossible_density_set_missing": 0,
+      "duplicate_segment_timestamp": 5
+    },
+    "flagged": {
+      "statistical_speed_outliers_kept": 0,
+      "outlier_sample_for_review": [],
+      "rows_in_possible_stuck_sensor_runs_kept": 0
+    },
+    "rows_out": 9,
+    "segments": 3,
+    "first": "2026-11-01 05:00:00",
+    "last": "2026-11-17 12:49:24",
+    "span_days": 16.33,
+    "median_interval_min": 11752.2,
+    "per_segment_rows": {
+      "1": 4,
+      "2": 3,
+      "3": 2
+    }
+  },
+  "grid_coverage": {
+    "1": 0.001,
+    "2": 0.001,
+    "3": 0.0
+  },
+  "split": {
+    "first": "2026-11-01 05:00:00",
+    "train_end": "2026-11-12 15:13:29.999999",
+    "validation_end": "2026-11-15 01:59:15",
+    "last": "2026-11-17 12:45:00"
+  }
+}

@@ -390,6 +390,11 @@ a {
   border-color: var(--muted);
   color: var(--muted);
 }
+.badge-status.demo-mode {
+  border-color: #d69e2e;
+  color: #8a5a00;
+  background: #fff8e6;
+}
 
 /* ---------- Map ---------- */
 .map-wrap {

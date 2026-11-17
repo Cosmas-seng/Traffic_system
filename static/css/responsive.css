@@ -1,0 +1,44 @@
+/* ==========================================================================
+   Responsive rules. Breakpoints match Bootstrap: lg 992, md 768, sm 576.
+   ========================================================================== */
+
+/* Tablet: narrower sidebar */
+@media (max-width: 1199.98px) {
+  :root { --sidebar-w: 176px; }
+  .app-content { padding: 16px; }
+}
+
+/* Below lg: sidebar becomes an off-canvas menu */
+@media (max-width: 991.98px) {
+  .app-sidebar { width: 240px; transform: translateX(-100%); box-shadow: none; }
+  .app-sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0, 0, 0, .3); }
+  .sidebar-backdrop.show { display: block; position: fixed; inset: 0; background: rgba(13, 39, 67, .5); z-index: 1030; }
+  .app-main { margin-left: 0; }
+  .menu-toggle { display: inline-flex; }
+  .sidebar-link { padding: 12px; }        /* touch-friendly */
+}
+
+/* Phones */
+@media (max-width: 767.98px) {
+  .app-topbar { padding: 0 12px; }
+  .user-chip .user-name { display: none; }
+  .app-content { padding: 12px; }
+  .card-box { padding: 12px; }
+  .auth-card { flex-direction: column; min-height: 0; }
+  .auth-visual { flex-basis: 170px; min-height: 170px; padding: 18px; }
+  .auth-visual h2 { font-size: 1.15rem; }
+  .auth-form { padding: 24px 20px; }
+  .route-card { flex-wrap: wrap; }
+  .map-search { max-width: none; }
+  .chart-box { height: 210px; }
+  .btn, .form-control, .form-select { min-height: 44px; }   /* touch targets */
+  .icon-btn { width: 40px; height: 40px; }
+}
+
+/* Never allow horizontal page scroll; tables scroll inside their wrapper */
+.table-responsive { -webkit-overflow-scrolling: touch; }
+img, canvas, svg { max-width: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation-duration: .01ms !important; }
+}

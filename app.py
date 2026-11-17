@@ -18,6 +18,7 @@ from werkzeug.utils import secure_filename
 from machine_learning import data_loader as ml_data
 from machine_learning import model_evaluation as ml_evaluation
 from machine_learning.prediction_service import PredictionService
+from machine_learning.presentation_service import PresentationPredictionService
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
@@ -37,7 +38,7 @@ ROLE_TO_DB = {"admin": "administrator",
 ROLE_FROM_DB = {v: k for k, v in ROLE_TO_DB.items()}
 
 app = Flask(__name__)
-PREDICTOR = PredictionService()
+PREDICTOR = PresentationPredictionService(PredictionService())
 ROUTING_ENGINE = None
 # SECRET_KEY must come from the environment in production. A random per-process
 # key is used for local development only (sessions reset on restart).
@@ -412,17 +413,40 @@ def row_incident(r):
 @app.get("/api/traffic")
 @login_required
 def api_traffic():
-    """Traffic levels need a live data provider (not connected). We still report
-    real incident counts from the database."""
+    """Return the newest stored TomTom measurement per configured road segment."""
     db = get_db()
-    since = (datetime.now(timezone.utc) - timedelta(hours=24)
-             ).strftime("%Y-%m-%d %H:%M:%S")
-    n = db.execute(
-        "SELECT COUNT(*) c FROM incidents WHERE reported_at>=?", (since,)).fetchone()["c"]
-    return jsonify(available=False, provider=None,
-                   message="No live traffic provider is connected. Congestion levels, delay "
-                           "and segments will appear here once one is integrated.",
-                   incidents_24h=n, segments=[], summary=None, updated_at=now_iso() + " UTC")
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    incidents = db.execute("SELECT COUNT(*) c FROM incidents WHERE reported_at>=?", (since,)).fetchone()["c"]
+    rows = db.execute("""
+        SELECT s.segment_id, s.road_name, s.start_lat, s.start_lng, s.end_lat, s.end_lng,
+               t.traffic_level, t.average_speed, t.recorded_at, t.data_source
+        FROM road_segments s
+        JOIN traffic_records t ON t.traffic_id = (
+            SELECT t2.traffic_id FROM traffic_records t2
+            WHERE t2.segment_id=s.segment_id ORDER BY t2.recorded_at DESC, t2.traffic_id DESC LIMIT 1
+        )
+        ORDER BY s.road_name
+    """).fetchall()
+    counts = {"low": 0, "moderate": 0, "heavy": 0, "severe": 0}
+    segments = []
+    newest = None
+    for r in rows:
+        level = r["traffic_level"]
+        counts[level] = counts.get(level, 0) + 1
+        newest = max(newest, r["recorded_at"]) if newest else r["recorded_at"]
+        segments.append({
+            "id": r["segment_id"], "name": r["road_name"], "level": level,
+            "speed_kmh": float(r["average_speed"]) if r["average_speed"] is not None else None,
+            "recorded_at": iso(r["recorded_at"]), "source": r["data_source"],
+            "coordinates": [[float(r["start_lat"]), float(r["start_lng"])],
+                            [float(r["end_lat"]), float(r["end_lng"])]],
+        })
+    available = bool(segments)
+    return jsonify(available=available, provider="TomTom" if available else None,
+                   message=None if available else "No TomTom traffic observations are stored yet. Run the TomTom collector after configuring your API key and confirming your data license.",
+                   incidents_24h=incidents, segments=segments,
+                   summary={**counts, "avg_delay_min": None},
+                   updated_at=(iso(newest) + " UTC") if newest else now_iso() + " UTC")
 
 
 @app.get("/api/incidents")
@@ -530,9 +554,10 @@ def api_predictions():
         horizon = request.args.get("horizon")
         if location is None and horizon is None:
             status = PREDICTOR.status(db)
-            locations = PREDICTOR.catalogue(db) if status["horizons"] else []
-            return jsonify(available=bool(status["horizons"]), locations=locations,
-                           message="No trained model is deployed. Run train_model to create one." if not status["horizons"] else None, **status)
+            locations = PREDICTOR.catalogue(db) if (status.get("horizons") or status.get("is_demo")) else []
+            message = status.get("message") or ("No trained model is deployed. Run train_model to create one." if not status.get("horizons") else None)
+            payload = {key: value for key, value in status.items() if key != "message"}
+            return jsonify(available=bool(locations), locations=locations, message=message, **payload)
         if location is None or horizon is None or not location.isdecimal() or not horizon.isdecimal() or int(location) < 1 or int(horizon) < 1:
             return jsonify(error="location and horizon must be positive integers."), 422
         return jsonify(PREDICTOR.predict(db, int(location), int(horizon)))
@@ -622,6 +647,9 @@ def api_models_metrics():
         from machine_learning import model_config
         import json
         from pathlib import Path
+        if PREDICTOR.status(db).get("is_demo"):
+            return jsonify(error="No validated model metrics are available in presentation demo mode.",
+                           prediction_mode="presentation_demo"), 409
         reports = {}
         for horizon in PREDICTOR.horizons():
             version = registry.current_version(horizon, PREDICTOR.models_dir)

@@ -111,8 +111,13 @@ class PredictionService:
             return _unavailable("no_model", segment_id, horizon)
         if horizon not in deployed:
             return _unavailable("unsupported_horizon", segment_id, horizon, {"supported_horizons": deployed})
-        seg = db.frame(
-            "SELECT id, name, length_km FROM road_segments WHERE id=?", (segment_id,))
+        if db.engine == "sqlite":
+            seg = db.frame(
+                "SELECT id, name, length_km FROM road_segments WHERE id=?", (segment_id,))
+        else:
+            seg = db.frame(
+                "SELECT segment_id AS id, road_name AS name, length_km "
+                "FROM road_segments WHERE segment_id=?", (segment_id,))
         if seg.empty:
             return _unavailable("unknown_segment", segment_id, horizon)
         name, length_km = seg.at[0, "name"], seg.at[0, "length_km"]
@@ -169,10 +174,14 @@ class PredictionService:
         last_ts = pd.Timestamp(row["ts"].iloc[0])
         target = last_ts + pd.Timedelta(minutes=horizon)
         obs_hist = grid[grid["observed"]].tail(24)
+        current_level = str(label_ratio(now_speed / ref, **fcfg["thresholds"]))
         out = {**base, "available": True, "prediction_status": "available", "reason": None, "message": None, "model_status": "ready",
                "prediction_horizon_minutes": horizon,
-               "current_speed_kmh": round(now_speed, 1), "current_congestion": str(label_ratio(now_speed / ref, **fcfg["thresholds"])),
-               "predicted_speed_kmh": round(speed, 1), "predicted_congestion": cong, "estimated_delay_minutes": delay,
+               "current_speed_kmh": round(now_speed, 1), "current_congestion": current_level,
+               "current_level": current_level,
+               "predicted_speed_kmh": round(speed, 1), "predicted_congestion": cong,
+               "predicted_level": cong,
+               "estimated_delay_minutes": delay, "estimated_delay_min": delay,
                "reference_speed_kmh": round(ref, 1), "observed_at": _fmt(latest_ts), "prediction_timestamp": _fmt(target),
                "generated_at": _fmt(now), "data_age_minutes": round(age_min, 1),
                "model": {"name": bundle["regressor_name"], "version": bundle["version"], "trained_at": bundle["trained_at"],
@@ -180,11 +189,21 @@ class PredictionService:
                "history": [{"t": _fmt(r.ts), "value": round(float(r.speed_kmh), 1)} for r in obs_hist.itertuples()],
                "forecast": [{"t": _fmt(target), "value": round(speed, 1)}]}
         if persist:
-            db.execute("INSERT OR IGNORE INTO traffic_predictions(segment_id,horizon_min,predicted_speed_kmh,predicted_congestion,estimated_delay_min,"
-                       "target_time,generated_at,source_observation_at,model_version) VALUES(?,?,?,?,?,?,?,?,?)" if db.engine == "sqlite" else
-                       "INSERT IGNORE INTO traffic_predictions(segment_id,horizon_min,predicted_speed_kmh,predicted_congestion,estimated_delay_min,"
-                       "target_time,generated_at,source_observation_at,model_version) VALUES(?,?,?,?,?,?,?,?,?)",
-                       (segment_id, horizon, speed, cong, delay, _fmt(target), _fmt(now), _fmt(latest_ts), bundle["version"]))
+            if db.engine == "sqlite":
+                db.execute(
+                    "INSERT OR IGNORE INTO traffic_predictions(segment_id,horizon_min,predicted_speed_kmh,predicted_congestion,estimated_delay_min,"
+                    "target_time,generated_at,source_observation_at,model_version) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (segment_id, horizon, speed, cong, delay, _fmt(target), _fmt(now), _fmt(latest_ts), bundle["version"]))
+            else:
+                # Production schema stores one forecast timestamp and has no horizon/delay columns.
+                exists = db.execute(
+                    "SELECT prediction_id FROM traffic_predictions WHERE segment_id=? AND forecast_for=? AND model_version=? LIMIT 1",
+                    (segment_id, _fmt(target), bundle["version"])).fetchone()
+                if not exists:
+                    db.execute(
+                        "INSERT INTO traffic_predictions(segment_id,predicted_at,forecast_for,predicted_level,predicted_speed,model_version) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (segment_id, _fmt(now), _fmt(target), cong, speed, bundle["version"]))
             db.commit()
         return out
 
@@ -206,6 +225,13 @@ class PredictionService:
         if not db.has_table("traffic_predictions"):
             return []
         lim = max(1, min(int(limit), 1000))
-        df = db.frame("SELECT horizon_min, predicted_speed_kmh, predicted_congestion, estimated_delay_min, target_time, generated_at, model_version "
-                      "FROM traffic_predictions WHERE segment_id=? ORDER BY target_time DESC LIMIT " + str(lim), (int(segment_id),))
-        return df.to_dict("records")
+        if db.engine == "sqlite":
+            sql = ("SELECT horizon_min, predicted_speed_kmh, predicted_congestion, estimated_delay_min, "
+                   "target_time, generated_at, model_version FROM traffic_predictions "
+                   "WHERE segment_id=? ORDER BY target_time DESC LIMIT " + str(lim))
+        else:
+            sql = ("SELECT NULL AS horizon_min, predicted_speed AS predicted_speed_kmh, "
+                   "predicted_level AS predicted_congestion, NULL AS estimated_delay_min, "
+                   "forecast_for AS target_time, predicted_at AS generated_at, model_version "
+                   "FROM traffic_predictions WHERE segment_id=? ORDER BY forecast_for DESC LIMIT " + str(lim))
+        return db.frame(sql, (int(segment_id),)).to_dict("records")

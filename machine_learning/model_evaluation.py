@@ -62,13 +62,23 @@ def realized_error(db, horizon=None, bin_minutes=cfg.BIN_MINUTES, since=None):
     """Compare STORED predictions with what was later actually measured (when both exist)."""
     if not (db.has_table("traffic_predictions") and db.has_table("traffic_records")):
         return {"n": 0}
-    sql, params = ("SELECT segment_id, horizon_min, predicted_speed_kmh, predicted_congestion, target_time, model_version "
-                   "FROM traffic_predictions WHERE 1=1"), []
-    if horizon:
-        sql += " AND horizon_min=?"
-        params.append(int(horizon))
+    if db.engine == "sqlite":
+        sql, params = ("SELECT segment_id, horizon_min, predicted_speed_kmh, predicted_congestion, target_time, model_version "
+                       "FROM traffic_predictions WHERE 1=1"), []
+        target_col = "target_time"
+        if horizon:
+            sql += " AND horizon_min=?"
+            params.append(int(horizon))
+    else:
+        sql, params = ("SELECT segment_id, TIMESTAMPDIFF(MINUTE,predicted_at,forecast_for) AS horizon_min, "
+                       "predicted_speed AS predicted_speed_kmh, predicted_level AS predicted_congestion, "
+                       "forecast_for AS target_time, model_version FROM traffic_predictions WHERE 1=1"), []
+        target_col = "forecast_for"
+        if horizon:
+            sql += " AND TIMESTAMPDIFF(MINUTE,predicted_at,forecast_for)=?"
+            params.append(int(horizon))
     if since:
-        sql += " AND target_time>=?"
+        sql += f" AND {target_col}>=?"
         params.append(str(since))
     preds = db.frame(sql, params)
     if preds.empty:
@@ -76,7 +86,8 @@ def realized_error(db, horizon=None, bin_minutes=cfg.BIN_MINUTES, since=None):
     preds["target_time"] = pd.to_datetime(preds["target_time"])
     lo, hi = preds["target_time"].min() - pd.Timedelta(
         minutes=bin_minutes), preds["target_time"].max() + pd.Timedelta(minutes=bin_minutes)
-    obs = db.frame("SELECT segment_id, recorded_at, speed_kmh FROM traffic_records WHERE recorded_at>=? AND recorded_at<=? ORDER BY recorded_at",
+    speed_col = "speed_kmh" if db.engine == "sqlite" else "average_speed"
+    obs = db.frame(f"SELECT segment_id, recorded_at, {speed_col} AS speed_kmh FROM traffic_records WHERE recorded_at>=? AND recorded_at<=? ORDER BY recorded_at",
                    (lo.strftime("%Y-%m-%d %H:%M:%S"), hi.strftime("%Y-%m-%d %H:%M:%S")))
     if obs.empty:
         return {"n": 0}
